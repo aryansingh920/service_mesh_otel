@@ -23,7 +23,7 @@ async def query():
     await asyncio.sleep(latency)
 
     # 10% failure rate to simulate DB errors
-    if random.random() < 0.1:
+    if random.random() < 0.5:
         logger.error("Simulated DB connection failure!")
         return JSONResponse(
             status_code=500,
