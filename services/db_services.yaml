@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-simulator
+  namespace: mesh-apps
+spec:
+  selector: {matchLabels: {app: db-simulator}}
+  template:
+    metadata: {labels: {app: db-simulator}}
+    spec:
+      nodeSelector: {workload: backend}
+      containers:
+      - name: app
+        image: hashicorp/http-echo
+        args: ["-text", "I am the DB Simulator"]
+        resources:
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-simulator
+  namespace: mesh-apps
+spec:
+  ports: [{port: 80, targetPort: 5678}]
+  selector: {app: db-simulator}

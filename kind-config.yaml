@@ -1,0 +1,49 @@
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+name: observability-mesh
+
+nodes:
+  # Control plane
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Istio Gateway - HTTP
+      - containerPort: 30080
+        hostPort: 80
+        protocol: TCP
+      # Istio Gateway - HTTPS  
+      - containerPort: 30443
+        hostPort: 443
+        protocol: TCP
+      # Kibana
+      - containerPort: 30561
+        hostPort: 5601
+        protocol: TCP
+      # Grafana
+      - containerPort: 30300
+        hostPort: 3000
+        protocol: TCP
+      # Kiali (Istio dashboard)
+      - containerPort: 30200
+        hostPort: 20001
+        protocol: TCP
+
+  # Worker node 1 - will run frontend + OTel collector
+  - role: worker
+    labels:
+      workload: frontend
+
+  # Worker node 2 - will run backend services
+  - role: worker
+    labels:
+      workload: backend
+
+  # Worker node 3 - will run observability stack
+  - role: worker
+    labels:
+      workload: observability
