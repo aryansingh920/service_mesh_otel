@@ -30,3 +30,15 @@ while true; do
   kubectl exec -n mesh-apps \$(kubectl get pod -l app=backend -n mesh-apps -o jsonpath='{.items[0].metadata.name}') -c app -- curl -s http://db-simulator.mesh-apps.svc.cluster.local;
   sleep 2;
 done"
+
+
+
+
+
+
+
+
+
+
+
+kubectl exec -it $(kubectl get pod -l app=sleep -n mesh-apps -o jsonpath='{.items[0].metadata.name}') -n mesh-apps -- sh -c "while true; do curl -s http://frontend.mesh-apps.svc.cluster.local; echo ' -> Chain hit at \$(date)'; sleep 1; done"

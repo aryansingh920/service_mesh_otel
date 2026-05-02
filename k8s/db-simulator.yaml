@@ -1,0 +1,58 @@
+# ============ DB SIMULATOR ============
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-simulator
+  namespace: mesh-apps
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: db-simulator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-simulator
+  namespace: mesh-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-simulator
+  template:
+    metadata:
+      labels:
+        app: db-simulator
+        version: v1
+    spec:
+      nodeSelector:
+        workload: backend
+      containers:
+        - name: app
+          image: db-simulator:v1
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---

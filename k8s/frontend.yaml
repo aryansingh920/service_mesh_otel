@@ -1,0 +1,57 @@
+# ============ FRONTEND ============
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: mesh-apps
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http  # Istio requires named ports to work properly
+  selector:
+    app: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: mesh-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: v1  # Istio uses this for traffic splitting later
+    spec:
+      nodeSelector:
+        workload: frontend
+      containers:
+        - name: app
+          image: frontend:v1
+          imagePullPolicy: Never  # Use local image loaded into Kind
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30

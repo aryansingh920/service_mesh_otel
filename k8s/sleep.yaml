@@ -1,0 +1,35 @@
+# ============ SLEEP POD (traffic generator) ============
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sleep
+  namespace: mesh-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sleep
+  namespace: mesh-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sleep
+  template:
+    metadata:
+      labels:
+        app: sleep
+    spec:
+      serviceAccountName: sleep
+      containers:
+        - name: sleep
+          image: curlimages/curl:latest
+          command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+---

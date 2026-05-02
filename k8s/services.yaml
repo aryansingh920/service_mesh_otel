@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mesh-apps
+  labels:
+    istio-injection: enabled  # This tells Istio to auto-inject sidecars into every pod in this namespace
+---
+# ============ ISTIO GATEWAY ============
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: mesh-gateway
+  namespace: mesh-apps
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+        - "*"
+---
+# ============ VIRTUAL SERVICE (routes external traffic to frontend) ============
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: frontend
+  namespace: mesh-apps
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - mesh-gateway
+  http:
+    - match:
+        - uri:
+            prefix: "/"
+      route:
+        - destination:
+            host: frontend
+            port:
+              number: 80
