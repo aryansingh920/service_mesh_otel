@@ -1,0 +1,248 @@
+# ================================================================
+# istio-resilience.yaml
+# Applies to: sleep → frontend → backend → db-simulator chain
+# Apply with: kubectl apply -f istio-resilience.yaml
+# ================================================================
+
+# ────────────────────────────────────────────────────────────────
+# 1. TIMEOUTS
+#    - frontend: 5s to respond to sleep
+#    - backend: 3s to respond to frontend
+#    - db-simulator: 2s to respond to backend
+# ────────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: frontend-vs
+  namespace: mesh-apps
+spec:
+  hosts:
+    - frontend
+  http:
+    - name: frontend-route
+      timeout: 5s                     # ← hard cutoff for this hop
+      retries:
+        attempts: 3                   # retry up to 3 times
+        perTryTimeout: 1500ms         # each attempt gets 1.5s
+        retryOn: "5xx,reset,connect-failure,retriable-4xx"
+      route:
+        - destination:
+            host: frontend
+            port:
+              number: 80
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: backend-vs
+  namespace: mesh-apps
+spec:
+  hosts:
+    - backend
+  http:
+    - name: backend-route
+      timeout: 3s
+      retries:
+        attempts: 3
+        perTryTimeout: 800ms
+        retryOn: "5xx,reset,connect-failure,retriable-4xx"
+        retryRemoteLocalities: true   # retry on different pod if available
+      route:
+        - destination:
+            host: backend
+            port:
+              number: 80
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: db-simulator-vs
+  namespace: mesh-apps
+spec:
+  hosts:
+    - db-simulator
+  http:
+    - name: db-route
+      timeout: 2s
+      retries:
+        attempts: 2                   # fewer retries for DB — avoid thundering herd
+        perTryTimeout: 800ms
+        retryOn: "5xx,reset,connect-failure"
+      route:
+        - destination:
+            host: db-simulator
+            port:
+              number: 80
+
+---
+# ────────────────────────────────────────────────────────────────
+# 2. CIRCUIT BREAKER (DestinationRule)
+#    Outlier detection ejects misbehaving pods from the pool.
+#    Applied to backend and db-simulator (the critical path).
+# ────────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: backend-dr
+  namespace: mesh-apps
+spec:
+  host: backend
+  trafficPolicy:
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 50   # queue depth before rejecting
+        http2MaxRequests: 100         # max concurrent requests
+        maxRequestsPerConnection: 10  # force connection recycling
+      tcp:
+        connectTimeout: 500ms
+        maxConnections: 50
+    outlierDetection:
+      # Eject pod if it returns 5 consecutive 5xx errors
+      consecutiveGatewayErrors: 5
+      consecutive5xxErrors: 5
+      interval: 10s                   # scan interval
+      baseEjectionTime: 30s           # how long a pod stays ejected
+      maxEjectionPercent: 50          # never eject >50% of the pool
+      minHealthPercent: 50            # stop ejecting if <50% healthy
+      splitExternalLocalOriginErrors: false
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: db-simulator-dr
+  namespace: mesh-apps
+spec:
+  host: db-simulator
+  trafficPolicy:
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 20   # DB is a bottleneck — keep this low
+        http2MaxRequests: 50
+        maxRequestsPerConnection: 5
+      tcp:
+        connectTimeout: 300ms
+        maxConnections: 20
+    outlierDetection:
+      consecutiveGatewayErrors: 3    # trip faster on DB errors
+      consecutive5xxErrors: 3
+      interval: 5s
+      baseEjectionTime: 60s          # stay out longer for DB recovery
+      maxEjectionPercent: 100        # if DB is down, eject all (fail fast)
+      minHealthPercent: 0
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: frontend-dr
+  namespace: mesh-apps
+spec:
+  host: frontend
+  trafficPolicy:
+    connectionPool:
+      http:
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 200
+      tcp:
+        connectTimeout: 500ms
+        maxConnections: 100
+    outlierDetection:
+      consecutiveGatewayErrors: 5
+      consecutive5xxErrors: 5
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 33         # keep at least 2/3 of frontend pods
+
+---
+# ────────────────────────────────────────────────────────────────
+# 3. PEER AUTHENTICATION (mTLS — if not already global)
+#    Ensures all intra-mesh traffic is encrypted
+# ────────────────────────────────────────────────────────────────
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: mesh-apps-mtls
+  namespace: mesh-apps
+spec:
+  mtls:
+    mode: STRICT    # no plaintext allowed inside the namespace
+
+---
+# ────────────────────────────────────────────────────────────────
+# 4. AUTHORIZATION POLICY
+#    Least-privilege: only allow the actual call chain
+#    sleep → frontend → backend → db-simulator
+# ────────────────────────────────────────────────────────────────
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: frontend-authz
+  namespace: mesh-apps
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/mesh-apps/sa/sleep"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backend-authz
+  namespace: mesh-apps
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/mesh-apps/sa/frontend"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: db-simulator-authz
+  namespace: mesh-apps
+spec:
+  selector:
+    matchLabels:
+      app: db-simulator
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/mesh-apps/sa/backend"]
+
+---
+# ────────────────────────────────────────────────────────────────
+# 5. FAULT INJECTION (for testing resilience — remove in prod)
+#    Uncomment to verify circuit breaker / retry behaviour
+# ────────────────────────────────────────────────────────────────
+# apiVersion: networking.istio.io/v1alpha3
+# kind: VirtualService
+# metadata:
+#   name: backend-fault-test
+#   namespace: mesh-apps
+# spec:
+#   hosts:
+#     - backend
+#   http:
+#     - fault:
+#         delay:
+#           percentage:
+#             value: 20         # inject 500ms delay on 20% of requests
+#           fixedDelay: 500ms
+#         abort:
+#           percentage:
+#             value: 10         # return HTTP 503 on 10% of requests
+#           httpStatus: 503
+#       route:
+#         - destination:
+#             host: backend
