@@ -63,3 +63,15 @@ kubectl rollout status deployment/otel-collector -n mesh-apps --timeout=90s
 
 kubectl apply -f otel/otel-collector-config.yaml
 kubectl rollout status deployment/otel-collector -n mesh-apps --timeout=90s
+
+# overwrite the file with the downloaded one, then:
+kubectl apply -f otel/otel-collector-config.yaml
+kubectl rollout restart deployment/otel-collector -n mesh-apps
+kubectl rollout status deployment/otel-collector -n mesh-apps --timeout=90s
+
+
+# Generate a request
+kubectl exec -n mesh-apps deploy/sleep -- curl -s http://frontend.mesh-apps.svc.cluster.local
+
+# Watch the collector logs - you should see spans/logs streaming in
+kubectl logs -n mesh-apps -l app=otel-collector -c otel-collector -f

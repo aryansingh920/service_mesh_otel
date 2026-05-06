@@ -5,7 +5,6 @@ metadata:
   namespace: mesh-apps
 data:
   otel-collector-config.yaml: |
-    file_format: "1.0"
     receivers:
       otlp:
         protocols:
@@ -17,54 +16,33 @@ data:
     processors:
       batch:
         timeout: 1s
-        send_batch_size: 1024
       memory_limiter:
         check_interval: 1s
-        limit_mib: 512
+        limit_mib: 400
       resource:
         attributes:
           - key: deployment.environment
             value: "mesh-apps"
             action: upsert
-          - key: service.mesh
-            value: "istio"
-            action: upsert
 
     exporters:
-      # Export logs to stdout (works without external backend)
-      logging:
-        loglevel: info
-        sampling_initial: 5
-        sampling_thereafter: 200
-
-      # Export to Jaeger for traces (already in Istio stack)
-      jaeger:
-        endpoint: jaeger-collector.istio-system.svc.cluster.local:14250
-        tls:
-          insecure: true
-
-      # Export logs as OTLP (swap endpoint for Loki/Grafana/etc.)
-      otlp/logs:
-        endpoint: "http://loki-gateway.monitoring.svc.cluster.local:3100"
-        tls:
-          insecure: true
-        headers:
-          X-Scope-OrgID: "mesh-apps"
+      debug:
+        verbosity: detailed
 
     service:
       pipelines:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch, resource]
-          exporters: [jaeger, logging]
+          exporters: [debug]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch, resource]
-          exporters: [logging, otlp/logs]
+          exporters: [debug]
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch, resource]
-          exporters: [logging]
+          exporters: [debug]
 
 ---
 apiVersion: apps/v1
@@ -92,9 +70,9 @@ spec:
           args:
             - "--config=/conf/otel-collector-config.yaml"
           ports:
-            - containerPort: 4317   # OTLP gRPC
-            - containerPort: 4318   # OTLP HTTP
-            - containerPort: 8888   # Prometheus metrics
+            - containerPort: 4317
+            - containerPort: 4318
+            - containerPort: 8888
           volumeMounts:
             - name: otel-collector-config
               mountPath: /conf
