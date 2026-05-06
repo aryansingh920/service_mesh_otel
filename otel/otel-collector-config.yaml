@@ -5,6 +5,7 @@ metadata:
   namespace: mesh-apps
 data:
   otel-collector-config.yaml: |
+    file_format: "1.0"
     receivers:
       otlp:
         protocols:
